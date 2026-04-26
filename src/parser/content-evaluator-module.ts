@@ -649,14 +649,23 @@ export class ContentEvaluatorModule extends BaseModule {
       }
     }
 
-    const totalWeight = dimensions.reduce((sum, dim) => new Decimal(sum).add(weights[dim]).toNumber(), 0);
+    const rawTotalWeight = dimensions.reduce((sum, dim) => new Decimal(sum).add(weights[dim]).toNumber(), 0);
+    // Guard: if all weights are zero (misconfiguration), fall back to equal weights
+    const totalWeight = rawTotalWeight === 0 ? 1 : rawTotalWeight;
+    if (rawTotalWeight === 0) {
+      this.context.logger.warn("All evaluation dimension weights are zero — falling back to equal weighting.", {
+        weights,
+      });
+    }
 
     for (const id of allIds) {
       const weightedSum = dimensions.reduce((sum, dimension) => {
         const score = dimensionResults[dimension][id];
         if (score === undefined) {
-          throw new Error(
-            `LLM evaluation missing score for comment ID ${id} in dimension ${dimension}. Triggering retry.`
+          // Use logger.error (returns LogReturn) so isErrorRetryable can catch and retry this
+          throw this.context.logger.error(
+            `LLM evaluation missing score for comment ID ${id} in dimension ${dimension}. Triggering retry.`,
+            { id, dimension, availableIds: Object.keys(dimensionResults[dimension]) }
           );
         }
         const weight = weights[dimension];
