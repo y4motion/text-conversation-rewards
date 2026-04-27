@@ -18,3 +18,4 @@ src/types/rpcs.json
 invalid-issues.json
 manifest.json
 dist/
+test_results.log
