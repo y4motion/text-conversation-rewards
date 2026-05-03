@@ -78,14 +78,14 @@ describe("DataPurgeModule.creditResearchOnUnplanned — Issue #296", () => {
   it("credits assignee comment (not_planned + creditResearchOnUnplanned=true)", async () => {
     const m = makeModule(makeContext("not_planned", true));
     const comment = makeComment("assignee");
-    // New behaviour: research comments should NOT be skipped
+    // New behavior: research comments should NOT be skipped
     expect(await m._shouldSkipComment(comment as never)).toBe(false);
   });
 
   it("skips assignee comment on normal completion even when creditResearchOnUnplanned=true", async () => {
     const m = makeModule(makeContext("completed", true));
     const comment = makeComment("assignee");
-    // Regular task completion → normal skip behaviour preserved
+    // Regular task completion → normal skip behavior preserved
     expect(await m._shouldSkipComment(comment as never)).toBe(true);
   });
 
