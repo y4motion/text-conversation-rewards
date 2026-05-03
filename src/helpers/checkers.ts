@@ -1,4 +1,3 @@
-import { GitHubPullRequest, GitHubPullRequestReviewState } from "../github-types";
 import { IssueActivity } from "../issue-activity";
 import { ContextPlugin } from "../types/plugin-input";
 
