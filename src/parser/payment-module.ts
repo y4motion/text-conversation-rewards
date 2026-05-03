@@ -242,7 +242,7 @@ export class PaymentModule extends BaseModule {
     await this._applyFees(result, config.erc20RewardToken);
 
     await this._addWalletAddressesToResult(result);
-    await this._applyDifferentialRewards(result, { issueUrl: payload.issueUrl, issueId });
+    await this._applyDifferentialRewards(result, { issueUrl: payload.issueUrl, issueId }, config);
 
     const env = this.context.env;
     const eventName = context.eventName as SupportedEvents;
@@ -264,13 +264,18 @@ export class PaymentModule extends BaseModule {
     if (payoutMode === "permit" || directTransferError) {
       this.context.logger.info("Transitioning to permit generation.");
       for (const [username, reward] of Object.entries(result)) {
+        if (reward.differentialAmount !== undefined && reward.differentialAmount <= 0) {
+          this.context.logger.debug(`Skipping permit generation for ${username} (differential <= 0).`);
+          continue;
+        }
+        const amount = reward.differentialAmount ?? reward.total;
         this.context.logger.debug(`Updating result for user ${username}`);
         const configPayload: Context["config"] = {
           evmNetworkId: payload.evmNetworkId,
           evmPrivateEncrypted: payload.evmPrivateEncrypted,
           permitRequests: [
             {
-              amount: reward.total,
+              amount,
               username,
               contributionType: "reward",
               type: TokenType.ERC20,
@@ -493,7 +498,7 @@ export class PaymentModule extends BaseModule {
         }
         // In a differential re-close cycle, differentialAmount is set explicitly.
         // Skip users whose differential is zero or negative (already fully paid).
-        // For first-time distributions differentialAmount is undefined — preserve original behaviour.
+        // For first-time distributions differentialAmount is undefined — preserve original behavior.
         if (reward.differentialAmount !== undefined && reward.differentialAmount <= 0) {
           return null;
         }
@@ -514,13 +519,18 @@ export class PaymentModule extends BaseModule {
    * Returns Decimal(0) on error so that the re-close cycle is treated as a
    * first distribution (safe fallback — never under-pays).
    */
-  private async _fetchPreviousPermitTotal(beneficiaryId: number, locationId: number): Promise<Decimal> {
+  private async _fetchPreviousPermitTotal(
+    beneficiaryId: number,
+    locationId: number,
+    tokenId: number
+  ): Promise<Decimal> {
     try {
       const { data, error } = await this._supabase
         .from("permits")
         .select("amount")
         .eq("beneficiary_id", beneficiaryId)
-        .eq("location_id", locationId);
+        .eq("location_id", locationId)
+        .eq("token_id", tokenId);
 
       if (error || !data) {
         this.context.logger.warn("Could not fetch previous permit total", { message: error?.message });
@@ -546,10 +556,15 @@ export class PaymentModule extends BaseModule {
    *     Negative or zero differentials mean no additional payout is owed;
    *     the user will be excluded from the payment run by _getBeneficiaries.
    *
-   * @param result  The normalised reward result map (mutated in-place).
+   * @param result  The normalized reward result map (mutated in-place).
    * @param issue   Issue URL + numeric ID used to resolve the permit location.
+   * @param config  RewardSettings to retrieve token details.
    */
-  private async _applyDifferentialRewards(result: Result, issue: { issueUrl: string; issueId: number }): Promise<void> {
+  private async _applyDifferentialRewards(
+    result: Result,
+    issue: { issueUrl: string; issueId: number },
+    config: RewardSettings
+  ): Promise<void> {
     const locationId = await this.context.adapters.supabase.location.getOrCreateIssueLocation({
       issueId: issue.issueId,
       issueUrl: issue.issueUrl,
@@ -561,7 +576,8 @@ export class PaymentModule extends BaseModule {
         continue;
       }
 
-      const previousTotal = await this._fetchPreviousPermitTotal(reward.userId, locationId);
+      const tokenId = await this._getOrCreateToken(config.erc20RewardToken, config.evmNetworkId);
+      const previousTotal = await this._fetchPreviousPermitTotal(reward.userId, locationId, tokenId);
       if (previousTotal.isZero()) {
         // First-time distribution — no differential annotation needed.
         continue;
